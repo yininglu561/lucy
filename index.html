@@ -1,0 +1,1279 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>攀岩分析仪 iOS Pro - 内联播放版</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/pose.js"></script>
+    <style>
+        :root { 
+            --accent: #8b5cf6; 
+            --accent-light: #a78bfa;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+        }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
+            background: #000; color: #fff; margin: 0; padding: 15px; min-height: 100vh;
+            -webkit-text-size-adjust: 100%;
+        }
+        .box { 
+            background: #111; border: 1px solid #333; border-radius: 12px; padding: 15px; margin-bottom: 15px; text-align: center; 
+        }
+        .video-wrap { 
+            position: relative; width: 100%; max-width: 480px; margin: 0 auto 15px; border-radius: 12px; 
+            overflow: hidden; display: none; background: #000; 
+            -webkit-overflow-scrolling: touch;
+            -webkit-transform: translateZ(0);
+        }
+        video { 
+            width: 100%; height: auto; display: block; object-fit: contain;
+            -webkit-playsinline: true;
+            playsinline: true;
+            webkit-playsinline: true;
+            x5-playsinline: true;
+            x5-video-player-type: h5;
+            x5-video-player-fullscreen: false;
+            x5-video-orientation: portraint;
+            pointer-events: none;
+        }
+        canvas { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;
+            z-index: 10;
+        }
+        
+        .video-controls {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 50px;
+            background: linear-gradient(to top, rgba(0,0,0,0.8), transparent);
+            display: flex;
+            align-items: center;
+            padding: 0 15px;
+            z-index: 20;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .video-wrap:hover .video-controls,
+        .video-wrap:active .video-controls {
+            opacity: 1;
+        }
+        .play-btn {
+            width: 40px;
+            height: 40px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 50%;
+            border: none;
+            color: #fff;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .time-display {
+            margin-left: 15px;
+            font-size: 14px;
+            color: #fff;
+        }
+        
+        .status-indicator {
+            position: absolute; top: 15px; left: 15px; padding: 5px 12px; border-radius: 20px;
+            background: rgba(0,0,0,0.6); font-size: 12px; display: flex; align-items: center; gap: 6px;
+            z-index: 20;
+        }
+        .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); transition: 0.3s; }
+
+        .btn { 
+            background: var(--accent); color: #fff; border: none; padding: 15px 30px; border-radius: 10px; 
+            font-weight: bold; width: 100%; font-size: 16px; margin: 10px 0; cursor: pointer; transition: all 0.3s ease;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .btn:active { transform: scale(0.98); opacity: 0.9; }
+
+        #progress-container { 
+            position: relative;
+            height: 20px; 
+            background: #222; 
+            width: 100%; 
+            margin: 10px 0; 
+            border-radius: 10px; 
+            display: none; 
+            cursor: pointer;
+            overflow: hidden;
+            touch-action: none;
+        }
+        #progress-bar {
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: #333;
+            transform: translateY(-50%);
+            pointer-events: none;
+        }
+        #progress-fill { 
+            height: 100%; 
+            background: linear-gradient(90deg, var(--accent), var(--accent-light)); 
+            width: 0%; 
+            transition: width 0.1s linear;
+            position: relative;
+        }
+        .progress-thumb {
+            position: absolute;
+            right: -8px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 16px;
+            height: 16px;
+            background: #fff;
+            border-radius: 50%;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+            pointer-events: none;
+        }
+        .time-tooltip {
+            position: absolute;
+            top: -35px;
+            background: rgba(0,0,0,0.9);
+            color: #fff;
+            padding: 5px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+            transform: translateX(-50%);
+            white-space: nowrap;
+        }
+        #progress-container:hover .time-tooltip,
+        #progress-container:active .time-tooltip {
+            opacity: 1;
+        }
+
+        .score-card { 
+            background: linear-gradient(145deg, #1a1a24, #111118); padding: 25px; border-radius: 20px; 
+            display: none; border: 1px solid rgba(139, 92, 246, 0.2); box-shadow: 0 25px 50px rgba(0,0,0,0.5);
+        }
+        .score-header { text-align: center; margin-bottom: 25px; padding-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .score-circle {
+            width: 140px; height: 140px; margin: 0 auto 15px; border-radius: 50%;
+            background: conic-gradient(var(--accent) calc(var(--score) * 1%), #222 calc(var(--score) * 1%));
+            display: flex; align-items: center; justify-content: center; position: relative;
+        }
+        .score-circle::before { content: ''; position: absolute; width: 110px; height: 110px; background: #1a1a24; border-radius: 50%; }
+        .score-value { position: relative; font-size: 42px; font-weight: bold; color: var(--accent); z-index: 1; }
+        
+        .ai-advice {
+            background: rgba(139, 92, 246, 0.1); border-left: 3px solid var(--accent);
+            padding: 15px; border-radius: 0 12px 12px 0; margin-top: 20px; font-size: 14px; line-height: 1.6; text-align: left;
+        }
+
+        .metric { background: rgba(255,255,255,0.03); padding: 15px; border-radius: 12px; margin: 12px 0; }
+        .metric-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .metric-name { font-size: 15px; color: #ccc; display: flex; align-items: center; gap: 8px; }
+        .metric-score { font-size: 20px; font-weight: bold; color: #fff; }
+        .metric-bar-bg { height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden; }
+        .metric-bar-fill { height: 100%; border-radius: 3px; transition: width 1s ease-out; position: relative; overflow: hidden; }
+        .metric-bar-fill::after {
+            content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+            animation: shimmer 2s infinite;
+        }
+        @keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+        .grade-badge {
+            display: inline-block; padding: 6px 16px; border: 1px solid var(--accent);
+            border-radius: 20px; font-size: 13px; color: var(--accent); font-weight: 600; margin-top: 10px;
+        }
+        .lock-warning { color: var(--danger); font-weight: bold; animation: blink 1s infinite; }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        
+        .debug-info {
+            font-size: 12px; color: #666; margin-top: 10px; font-family: monospace;
+        }
+        
+        .sub-metric {
+            font-size: 12px;
+            color: #888;
+            margin-top: 5px;
+            padding-left: 10px;
+            border-left: 2px solid rgba(139, 92, 246, 0.3);
+        }
+    </style>
+<base target="_blank">
+</head>
+<body>
+
+    <div id="status" class="box">请上传攀岩动作视频<br><span style="font-size:12px;color:#666">iOS系统拖拽进度条观看骨骼点</span></div>
+
+    <input type="file" id="videoInput" accept="video/*" style="display:none">
+    <button class="btn" id="selectBtn" onclick="document.getElementById('videoInput').click()">📁 选择视频</button>
+    <button class="btn" id="startBtn" style="display:none; background:var(--success);" onclick="beginProcess()">🚀 开始智能分析</button>
+
+    <div class="video-wrap" id="videoWrap">
+        <div class="status-indicator">
+            <div class="dot" id="statusDot"></div>
+            <span id="statusText">AI 监控中</span>
+        </div>
+        <video id="v" playsinline webkit-playsinline muted preload="auto"></video>
+        <canvas id="c"></canvas>
+        
+        <div class="video-controls" id="videoControls">
+            <button class="play-btn" id="playPauseBtn" onclick="togglePlay()">▶</button>
+            <span class="time-display" id="timeDisplay">0:00 / 0:00</span>
+        </div>
+    </div>
+    <div id="progress-container">
+        <div id="progress-bar">
+            <div id="progress-fill">
+                <div class="progress-thumb"></div>
+            </div>
+        </div>
+        <div class="time-tooltip" id="timeTooltip">00:00</div>
+    </div>
+
+    <button class="btn" id="replayBtn" style="display:none; background:#333; margin-top: 0;" onclick="resetAndPlay()">🎞️ 重新播放</button>
+
+    <div class="score-card" id="scoreCard">
+        <div class="score-header">
+            <div class="score-circle" id="scoreCircle" style="--score: 0;">
+                <div class="score-value" id="totalScore">0</div>
+            </div>
+            <div style="font-size: 14px; color: #888; letter-spacing: 2px;">综合表现得分</div>
+            <div class="grade-badge" id="gradeBadge">计算中...</div>
+        </div>
+
+        <div id="metrics"></div>
+        <div class="debug-info" id="debugInfo"></div>
+
+        <div class="ai-advice" id="aiAdvice">
+            <b>AI 训练建议：</b><br>
+            正在根据你的动作生成个性化改进方案...
+        </div>
+    </div>
+
+    <script>
+        // ==================== 全局配置 ====================
+        const CONFIG = {
+            // 阈值配置
+            STABLE_VELOCITY_THRESHOLD: 0.02,      // 肢体稳定速度阈值
+            CENTER_VELOCITY_SMALL: 0.01,           // 重心停顿速度阈值
+            CENTER_VELOCITY_HIGH: 0.05,            // 重心高速阈值
+            ACCELERATION_HIGH: 0.1,                // 高加速度阈值（抖动）
+            INSTABILITY_TIME_THRESHOLD: 0.3,       // 失衡时间阈值（秒）
+            PAUSE_TIME_THRESHOLD: 0.5,             // 停顿时间阈值（秒）
+            LOCK_ARM_TIME_THRESHOLD: 1.0,          // 锁臂时间阈值（秒）
+            PRE_MOVEMENT_TIME: 0.3,                // 预摆提前时间（秒）
+            
+            // 评分权重
+            WEIGHTS: {
+                STRUCTURE: 0.30,
+                CONTROL: 0.30,
+                EFFICIENCY: 0.25,
+                TECHNIQUE_RISK: 0.15
+            },
+            
+            // 子模块权重
+            SUB_WEIGHTS: {
+                THREE_POINT: 0.20,
+                CONVERSION: 0.10,
+                STABILITY: 0.15,
+                RECOVERY: 0.15,
+                FLOW: 0.15,
+                PREP: 0.10,
+                LOCK_ARM: 0.15
+            }
+        };
+
+        // ==================== 全局变量 ====================
+        const v = document.getElementById('v'), c = document.getElementById('c'), ctx = c.getContext('2d');
+        const progressContainer = document.getElementById('progress-container');
+        const progressFill = document.getElementById('progress-fill');
+        const timeTooltip = document.getElementById('timeTooltip');
+        const playPauseBtn = document.getElementById('playPauseBtn');
+        const timeDisplay = document.getElementById('timeDisplay');
+        
+        let pose, videoDuration = 0;
+        let isAnalyzing = false;
+        let isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+        
+        // 数据存储
+        let frameDataList = [];  // FrameData数组
+        let videoMetrics = null; // VideoMetrics聚合数据
+        
+        // 临时状态追踪
+        let lastFrameData = null;
+        let lockArmState = { left: { startTime: null, isLocking: false }, right: { startTime: null, isLocking: false } };
+        let pauseState = { startTime: null, isPausing: false };
+        let instabilityState = { startTime: null, isUnstable: false };
+        let supportViolationState = { startTime: null, isViolating: false };
+
+        // ==================== 数据结构定义 ====================
+        
+        // 每帧数据结构
+        class FrameData {
+            constructor(time, landmarks) {
+                this.time = time;
+                this.landmarks = landmarks ? JSON.parse(JSON.stringify(landmarks)) : null;
+                
+                // 基础运动参数
+                this.center = { x: 0, y: 0 };           // 重心坐标
+                this.velocity = 0;                       // 重心速度
+                this.acceleration = 0;                   // 重心加速度
+                
+                // 肢体速度 [左手, 右手, 左脚, 右脚]
+                this.limbVelocity = [0, 0, 0, 0];
+                
+                // 状态标记
+                this.supportState = 'stable';           // stable, brief_unstable, unstable
+                this.pauseState = false;                // 是否停顿
+                this.lockState = { left: false, right: false, isLocking: false };
+                this.instabilityState = false;          // 是否抖动
+                this.preMovementState = false;          // 是否有预摆
+                
+                // 角度数据
+                this.angles = {
+                    leftElbow: 0, rightElbow: 0,
+                    leftShoulder: 0, rightShoulder: 0
+                };
+                
+                // 辅助数据
+                this.supportPoints = 0;                 // 稳定支撑点数
+                this.movingLimbs = 0;                   // 移动肢体数
+            }
+        }
+        
+        // 视频聚合指标
+        class VideoMetrics {
+            constructor() {
+                this.totalFrames = 0;
+                this.totalDuration = 0;
+                
+                // Structure模块
+                this.stableFrames = 0;
+                this.briefUnstableFrames = 0;
+                this.unstableFrames = 0;
+                this.supportViolationFrames = 0;
+                this.conversionViolations = 0;          // 双手同时移动次数
+                
+                // Control模块
+                this.instabilityFrames = 0;
+                this.recoveryTimes = [];                // 失衡恢复时间数组
+                
+                // Efficiency模块
+                this.pauseCount = 0;
+                this.totalPauseDuration = 0;
+                this.movementCount = 0;                 // 总换点次数
+                this.noPrepCount = 0;                   // 无预摆次数
+                
+                // Technique Risk模块
+                this.lockDuration = { left: 0, right: 0, total: 0 };
+                this.lockEvents = [];                   // 锁臂事件记录
+            }
+        }
+
+        // ==================== 基础运动参数计算层 ====================
+        
+        function computeLimbVelocity(current, previous, dt) {
+            if (!previous || dt <= 0) return [0, 0, 0, 0];
+            
+            const limbs = [
+                [15, 16, 27, 28], // 左手、右手、左脚、右脚的索引
+            ][0];
+            
+            const velocities = [];
+            const limbIndices = [15, 16, 27, 28]; // 左手腕、右手腕、左脚踝、右脚踝
+            
+            for (let idx of limbIndices) {
+                const curr = current[idx];
+                const prev = previous[idx];
+                if (curr && prev && curr.visibility > 0.5 && prev.visibility > 0.5) {
+                    const dx = curr.x - prev.x;
+                    const dy = curr.y - prev.y;
+                    const velocity = Math.sqrt(dx*dx + dy*dy) / dt;
+                    velocities.push(velocity);
+                } else {
+                    velocities.push(0);
+                }
+            }
+            
+            return velocities;
+        }
+        
+        function computeCenterVelocity(currentCenter, previousCenter, dt) {
+            if (!previousCenter || dt <= 0) return 0;
+            const dx = currentCenter.x - previousCenter.x;
+            const dy = currentCenter.y - previousCenter.y;
+            return Math.sqrt(dx*dx + dy*dy) / dt;
+        }
+        
+        function computeAcceleration(currentVelocity, previousVelocity, dt) {
+            if (!previousVelocity || dt <= 0) return 0;
+            return Math.abs(currentVelocity - previousVelocity) / dt;
+        }
+        
+        function getAngle(p1, p2, p3) {
+            const rad = Math.atan2(p3.y - p2.y, p3.x - p2.x) - Math.atan2(p1.y - p2.y, p1.x - p2.x);
+            let angle = Math.abs(rad * 180 / Math.PI);
+            return angle > 180 ? 360 - angle : angle;
+        }
+
+        // ==================== 行为识别层 ====================
+        
+        function detectThreePointSupport(frame, prevFrame) {
+            // 计算稳定支撑点数（肢体速度 < 阈值）
+            let stablePoints = 0;
+            let movingLimbs = 0;
+            
+            for (let i = 0; i < 4; i++) {
+                if (frame.limbVelocity[i] < CONFIG.STABLE_VELOCITY_THRESHOLD) {
+                    stablePoints++;
+                } else {
+                    movingLimbs++;
+                }
+            }
+            
+            frame.supportPoints = stablePoints;
+            frame.movingLimbs = movingLimbs;
+            
+            // 检测双手同时移动（违规转换）
+            const handsMoving = (frame.limbVelocity[0] > CONFIG.STABLE_VELOCITY_THRESHOLD && 
+                               frame.limbVelocity[1] > CONFIG.STABLE_VELOCITY_THRESHOLD);
+            
+            // 状态分类
+            if (stablePoints >= 3) {
+                frame.supportState = 'stable';
+            } else if (stablePoints < 3) {
+                // 短暂失衡 vs 持续失衡由时间聚合层处理
+                frame.supportState = 'unstable';
+            }
+            
+            return { stablePoints, handsMoving, isViolation: stablePoints < 3 };
+        }
+        
+        function detectInstability(frame, prevFrame) {
+            // 基于加速度检测抖动
+            const isHighAccel = frame.acceleration > CONFIG.ACCELERATION_HIGH;
+            const isHighVel = frame.velocity > CONFIG.CENTER_VELOCITY_HIGH;
+            
+            // 抖动定义：高加速度且非主动高速移动
+            frame.instabilityState = isHighAccel && !isHighVel;
+            return frame.instabilityState;
+        }
+        
+        function detectPause(frame, prevFrame) {
+            // 停顿检测：重心速度 < 小阈值
+            const isLowVel = frame.velocity < CONFIG.CENTER_VELOCITY_SMALL;
+            return isLowVel; // 持续时间由时间聚合层处理
+        }
+        
+        function detectPreMovement(currentFrame, frameHistory) {
+            // 预摆检测：在手移动前0.3秒，重心是否朝目标方向移动
+            if (!currentFrame || frameHistory.length < 3) return false;
+            
+            // 查找当前移动的肢体
+            const movingLimbs = [];
+            for (let i = 0; i < 4; i++) {
+                if (currentFrame.limbVelocity[i] > CONFIG.STABLE_VELOCITY_THRESHOLD) {
+                    movingLimbs.push(i);
+                }
+            }
+            
+            if (movingLimbs.length === 0) return false;
+            
+            // 检查0.3秒前的帧
+            const preTime = currentFrame.time - CONFIG.PRE_MOVEMENT_TIME;
+            const preFrame = frameHistory.find(f => Math.abs(f.time - preTime) < 0.1);
+            
+            if (!preFrame) return false;
+            
+            // 简单判断：重心是否有明显移动趋势
+            const dx = currentFrame.center.x - preFrame.center.x;
+            const dy = currentFrame.center.y - preFrame.center.y;
+            const preMovement = Math.sqrt(dx*dx + dy*dy) > 0.01;
+            
+            currentFrame.preMovementState = preMovement;
+            return preMovement;
+        }
+        
+        function detectLockArm(frame) {
+            if (!frame.landmarks) return { left: false, right: false };
+            
+            const lm = frame.landmarks;
+            
+            // 计算角度
+            frame.angles.leftElbow = getAngle(lm[11], lm[13], lm[15]);
+            frame.angles.rightElbow = getAngle(lm[12], lm[14], lm[16]);
+            frame.angles.leftShoulder = getAngle(lm[23], lm[11], lm[13]);
+            frame.angles.rightShoulder = getAngle(lm[24], lm[12], lm[14]);
+            
+            // 锁臂判定条件：肘角<90° 且 肩角<120°
+            const isLeftLocking = frame.angles.leftElbow < 90 && frame.angles.leftShoulder < 120;
+            const isRightLocking = frame.angles.rightElbow < 90 && frame.angles.rightShoulder < 120;
+            
+            // 检查重心Y是否明显上升（排除正常攀爬）
+            let isRising = false;
+            if (lastFrameData) {
+                const dy = lastFrameData.center.y - frame.center.y; // Y轴向下为正
+                isRising = dy > 0.02; // 重心上升超过阈值
+            }
+            
+            // 最终锁臂判定（持续时间在时间聚合层处理）
+            frame.lockState.left = isLeftLocking && !isRising;
+            frame.lockState.right = isRightLocking && !isRising;
+            frame.lockState.isLocking = frame.lockState.left || frame.lockState.right;
+            
+            return frame.lockState;
+        }
+
+        // ==================== 时间聚合层 ====================
+        
+        function aggregateTimeMetrics(frames, duration) {
+            const metrics = new VideoMetrics();
+            metrics.totalFrames = frames.length;
+            metrics.totalDuration = duration;
+            
+            // 临时状态追踪
+            let unstableStartTime = null;
+            let pauseStartTime = null;
+            let lockStartTime = { left: null, right: null };
+            let lastHandsMovingTime = null;
+            let recoveryStartTime = null;
+            
+            for (let i = 0; i < frames.length; i++) {
+                const frame = frames[i];
+                const prevFrame = i > 0 ? frames[i-1] : null;
+                const nextFrame = i < frames.length - 1 ? frames[i+1] : null;
+                const dt = nextFrame ? (nextFrame.time - frame.time) : 0.1;
+                
+                // --- 三点支撑聚合 ---
+                if (frame.supportState === 'stable') {
+                    metrics.stableFrames++;
+                    unstableStartTime = null;
+                } else {
+                    if (!unstableStartTime) unstableStartTime = frame.time;
+                    const unstableDuration = frame.time - unstableStartTime;
+                    
+                    if (unstableDuration < CONFIG.INSTABILITY_TIME_THRESHOLD) {
+                        metrics.briefUnstableFrames++;
+                    } else {
+                        metrics.unstableFrames++;
+                    }
+                }
+                
+                // 支撑转换违规（双手同时移动）
+                if (frame.movingLimbs >= 2) {
+                    if (!lastHandsMovingTime || (frame.time - lastHandsMovingTime) > 0.5) {
+                        metrics.conversionViolations++;
+                        metrics.supportViolationFrames++;
+                        lastHandsMovingTime = frame.time;
+                    }
+                }
+                
+                // --- 重心稳定度聚合 ---
+                if (frame.instabilityState) {
+                    metrics.instabilityFrames++;
+                    if (!recoveryStartTime) recoveryStartTime = frame.time;
+                } else {
+                    if (recoveryStartTime) {
+                        const recoveryTime = frame.time - recoveryStartTime;
+                        metrics.recoveryTimes.push(recoveryTime);
+                        recoveryStartTime = null;
+                    }
+                }
+                
+                // --- 停顿检测聚合 ---
+                const isLowVel = frame.velocity < CONFIG.CENTER_VELOCITY_SMALL;
+                if (isLowVel) {
+                    if (!pauseStartTime) pauseStartTime = frame.time;
+                    const pauseDuration = frame.time - pauseStartTime;
+                    if (pauseDuration >= CONFIG.PAUSE_TIME_THRESHOLD && !frame.pauseState) {
+                        frame.pauseState = true;
+                        metrics.pauseCount++;
+                        metrics.totalPauseDuration += pauseDuration;
+                    }
+                } else {
+                    pauseStartTime = null;
+                }
+                
+                // --- 锁臂检测聚合 ---
+                ['left', 'right'].forEach(side => {
+                    if (frame.lockState[side]) {
+                        if (!lockStartTime[side]) lockStartTime[side] = frame.time;
+                        const lockDuration = frame.time - lockStartTime[side];
+                        
+                        if (lockDuration >= CONFIG.LOCK_ARM_TIME_THRESHOLD) {
+                            metrics.lockDuration[side] += dt;
+                            metrics.lockDuration.total += dt;
+                            if (!frame.lockState.isLocking) frame.lockState.isLocking = true;
+                        }
+                    } else {
+                        if (lockStartTime[side]) {
+                            const duration = frame.time - lockStartTime[side];
+                            if (duration >= CONFIG.LOCK_ARM_TIME_THRESHOLD) {
+                                metrics.lockEvents.push({ side, duration, time: lockStartTime[side] });
+                            }
+                            lockStartTime[side] = null;
+                        }
+                    }
+                });
+                
+                // --- 预摆检测 ---
+                if (i > 5) {
+                    const history = frames.slice(Math.max(0, i-10), i);
+                    const hasPrep = detectPreMovement(frame, history);
+                    if (frame.movingLimbs > 0) {
+                        metrics.movementCount++;
+                        if (!hasPrep) metrics.noPrepCount++;
+                    }
+                }
+            }
+            
+            return metrics;
+        }
+
+        // ==================== 评分计算层 ====================
+        
+        function calculateScores(metrics) {
+            const scores = {};
+            
+            // 1. STRUCTURE (30%)
+            // 1.1 三点支撑稳定度 (20%)
+            const totalFrames = metrics.totalFrames || 1;
+            const threePointScore = ((metrics.stableFrames + 0.5 * metrics.briefUnstableFrames) / totalFrames) * 100;
+            
+            // 1.2 支撑转换合理性 (10%)
+            const violationRatio = metrics.supportViolationFrames / totalFrames;
+            const conversionScore = 100 * (1 - violationRatio);
+            
+            scores.structure = {
+                total: threePointScore * (CONFIG.SUB_WEIGHTS.THREE_POINT / 0.30) + 
+                       conversionScore * (CONFIG.SUB_WEIGHTS.CONVERSION / 0.30),
+                threePoint: Math.round(threePointScore),
+                conversion: Math.round(conversionScore)
+            };
+            
+            // 2. CONTROL (30%)
+            // 2.1 重心稳定度 (15%)
+            const instabilityRatio = metrics.instabilityFrames / totalFrames;
+            const stabilityScore = 100 * (1 - instabilityRatio);
+            
+            // 2.2 失衡恢复能力 (15%)
+            let recoveryScore = 100;
+            if (metrics.recoveryTimes.length > 0) {
+                const avgRecovery = metrics.recoveryTimes.reduce((a,b) => a+b, 0) / metrics.recoveryTimes.length;
+                recoveryScore = Math.max(0, 100 - avgRecovery * 50); // k=50的惩罚系数
+            }
+            
+            scores.control = {
+                total: stabilityScore * (CONFIG.SUB_WEIGHTS.STABILITY / 0.30) + 
+                       recoveryScore * (CONFIG.SUB_WEIGHTS.RECOVERY / 0.30),
+                stability: Math.round(stabilityScore),
+                recovery: Math.round(recoveryScore)
+            };
+            
+            // 3. EFFICIENCY (25%)
+            // 3.1 动作流畅度 (15%)
+            const flowScore = Math.max(0, Math.min(100, 100 - 15 * metrics.pauseCount));
+            
+            // 3.2 重心预摆能力 (10%)
+            let prepScore = 100;
+            if (metrics.movementCount > 0) {
+                const noPrepRatio = metrics.noPrepCount / metrics.movementCount;
+                prepScore = 100 * (1 - noPrepRatio);
+            }
+            
+            scores.efficiency = {
+                total: flowScore * (CONFIG.SUB_WEIGHTS.FLOW / 0.25) + 
+                       prepScore * (CONFIG.SUB_WEIGHTS.PREP / 0.25),
+                flow: Math.round(flowScore),
+                prep: Math.round(prepScore)
+            };
+            
+            // 4. TECHNIQUE RISK (15%)
+            // 4.1 锁臂检测 (15%) - 使用平方惩罚
+            const lockRatio = metrics.lockDuration.total / (metrics.totalDuration || 1);
+            const lockScore = 100 * (1 - Math.pow(lockRatio, 2));
+            
+            scores.techniqueRisk = {
+                total: lockScore,
+                lockArm: Math.round(lockScore)
+            };
+            
+            // 计算总分
+            const totalScore = 
+                scores.structure.total * CONFIG.WEIGHTS.STRUCTURE +
+                scores.control.total * CONFIG.WEIGHTS.CONTROL +
+                scores.efficiency.total * CONFIG.WEIGHTS.EFFICIENCY +
+                scores.techniqueRisk.total * CONFIG.WEIGHTS.TECHNIQUE_RISK;
+            
+            return {
+                total: Math.round(totalScore),
+                structure: scores.structure,
+                control: scores.control,
+                efficiency: scores.efficiency,
+                techniqueRisk: scores.techniqueRisk,
+                metrics: metrics
+            };
+        }
+
+        // ==================== 建议生成层 ====================
+        
+        function generateAdvice(results) {
+            const s = results.structure;
+            const ctrl = results.control;
+            const eff = results.efficiency;
+            const tech = results.techniqueRisk;
+            const total = results.total;
+            const m = results.metrics;
+            
+            let advice = [];
+            let grade = '';
+            let gradeColor = '';
+            
+            // 等级判定
+            if (total >= 90) {
+                grade = 'S';
+                gradeColor = 'var(--success)';
+                advice.push("你的动作非常老练！三点不动原则贯彻得很彻底，且很少出现锁臂。");
+            } else if (total >= 80) {
+                grade = 'A';
+                gradeColor = 'var(--accent)';
+                advice.push("表现不错，整体动作流畅，但在某些细节上还有提升空间。");
+            } else if (total >= 65) {
+                grade = 'B';
+                gradeColor = 'var(--warning)';
+                advice.push("基础比较扎实，但需要针对性改进一些技术细节。");
+            } else {
+                grade = 'C';
+                gradeColor = 'var(--danger)';
+                advice.push("检测到较多技术问题，建议重点练习基础动作模式。");
+            }
+            
+            // 具体问题分析
+            const weaknesses = [];
+            
+            if (s.threePoint < 70) {
+                weaknesses.push(`三点支撑稳定度不足（${s.threePoint}分），有${m.unstableFrames}帧失去稳定支撑`);
+                advice.push("建议：始终保持至少3个肢体稳定接触岩壁，移动单肢时确保其他3点牢固。");
+            }
+            
+            if (s.conversion < 80) {
+                weaknesses.push(`支撑转换违规${m.conversionViolations}次`);
+                advice.push("建议：避免双手同时离开岩点，采用'三点不动一点动'原则进行换点。");
+            }
+            
+            if (ctrl.stability < 70) {
+                weaknesses.push(`重心控制不稳（${ctrl.stability}分），检测到${m.instabilityFrames}帧无控制晃动`);
+                advice.push("建议：通过腿部发力而非手臂拉拽来控制重心移动，保持核心收紧。");
+            }
+            
+            if (ctrl.recovery < 70 && m.recoveryTimes.length > 0) {
+                const avgRec = (m.recoveryTimes.reduce((a,b)=>a+b,0)/m.recoveryTimes.length).toFixed(2);
+                weaknesses.push(`失衡恢复较慢，平均恢复时间${avgRec}秒`);
+                advice.push("建议：提前预判重心偏移，利用反作用力快速调整姿态。");
+            }
+            
+            if (eff.flow < 70) {
+                weaknesses.push(`动作流畅度不足（${eff.flow}分），检测到${m.pauseCount}次明显停顿`);
+                advice.push("建议：减少不必要的停顿，提前规划好路线，保持动作连贯性。");
+            }
+            
+            if (eff.prep < 70 && m.movementCount > 0) {
+                const prepRate = ((1 - m.noPrepCount/m.movementCount) * 100).toFixed(0);
+                weaknesses.push(`重心预摆意识不足（${prepRate}%的换点有预摆）`);
+                advice.push("建议：在手部移动前0.3秒，提前将重心朝目标方向偏移，利用动量辅助移动。");
+            }
+            
+            if (tech.lockArm < 70) {
+                const lockSec = m.lockDuration.total.toFixed(1);
+                weaknesses.push(`锁臂问题严重（${tech.lockArm}分），累计锁臂${lockSec}秒`);
+                advice.push(`建议：手臂尽量保持自然伸直挂点（肘角>90°），通过腿部横向移动或发力来寻找更高点，而非原地弯曲手臂僵持。检测到${m.lockEvents.length}次锁臂事件。`);
+            }
+            
+            if (weaknesses.length === 0) {
+                advice.push("各项技术指标表现均衡，建议保持当前训练节奏，尝试提高动作难度。");
+            }
+            
+            return {
+                grade,
+                gradeColor,
+                text: advice.join('<br><br>'),
+                weaknesses
+            };
+        }
+
+        // ==================== UI和初始化（保持原有逻辑）====================
+        
+        function setupIOSVideo() {
+            if (isIOS) {
+                v.setAttribute('playsinline', 'true');
+                v.setAttribute('webkit-playsinline', 'true');
+                v.setAttribute('x5-playsinline', 'true');
+                v.style.objectFit = 'contain';
+                v.removeAttribute('controls');
+            }
+        }
+
+        function togglePlay() {
+            if (v.paused) {
+                v.play().then(() => {
+                    playPauseBtn.innerText = '⏸';
+                }).catch(e => {
+                    v.muted = true;
+                    v.play();
+                    playPauseBtn.innerText = '⏸';
+                });
+            } else {
+                v.pause();
+                playPauseBtn.innerText = '▶';
+            }
+        }
+
+        function resetAndPlay() {
+            v.currentTime = 0;
+            togglePlay();
+        }
+
+        function updateTimeDisplay() {
+            const current = formatTime(v.currentTime);
+            const total = formatTime(videoDuration);
+            timeDisplay.innerText = `${current} / ${total}`;
+        }
+
+        function formatTime(seconds) {
+            if (!seconds || isNaN(seconds)) return '0:00';
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        v.addEventListener('timeupdate', () => {
+            updateTimeDisplay();
+            if (!isAnalyzing) {
+                const frame = frameDataList.find(f => Math.abs(f.time - v.currentTime) < 0.25);
+                if (frame) {
+                    draw(frame);
+                    updateStatusIndicator(frame);
+                    const percent = (v.currentTime / videoDuration) * 100;
+                    progressFill.style.width = percent + '%';
+                }
+            }
+        });
+
+        v.addEventListener('ended', () => {
+            playPauseBtn.innerText = '▶';
+        });
+
+        // ==================== MediaPipe初始化 ====================
+        
+        pose = new Pose({ 
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/${file}` 
+        });
+        
+        pose.setOptions({ 
+            modelComplexity: isIOS ? 0 : 1,
+            smoothLandmarks: true, 
+            minDetectionConfidence: 0.3,
+            minTrackingConfidence: 0.3
+        });
+        
+        pose.onResults(res => {
+            if (!res.poseLandmarks) return;
+            
+            const lm = res.poseLandmarks;
+            const currentTime = v.currentTime;
+            
+            // 创建帧数据对象
+            const frame = new FrameData(currentTime, lm);
+            
+            // 计算重心（髋部中心）
+            if (lm[23] && lm[24]) {
+                frame.center.x = (lm[23].x + lm[24].x) / 2;
+                frame.center.y = (lm[23].y + lm[24].y) / 2;
+            }
+            
+            // 计算时间差
+            let dt = 0.1;
+            if (lastFrameData) {
+                dt = currentTime - lastFrameData.time;
+                if (dt <= 0) dt = 0.1;
+            }
+            
+            // 基础运动参数计算
+            frame.limbVelocity = computeLimbVelocity(lm, lastFrameData ? lastFrameData.landmarks : null, dt);
+            frame.velocity = computeCenterVelocity(frame.center, lastFrameData ? lastFrameData.center : null, dt);
+            frame.acceleration = computeAcceleration(frame.velocity, lastFrameData ? lastFrameData.velocity : null, dt);
+            
+            // 行为识别
+            detectThreePointSupport(frame, lastFrameData);
+            detectInstability(frame, lastFrameData);
+            detectLockArm(frame);
+            
+            // 存储帧数据
+            frameDataList.push(frame);
+            lastFrameData = frame;
+        });
+
+        document.getElementById('videoInput').onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            setupIOSVideo();
+            
+            const url = URL.createObjectURL(file);
+            v.src = url;
+            v.load();
+            
+            document.getElementById('selectBtn').style.display = 'none';
+            document.getElementById('startBtn').style.display = 'block';
+            document.getElementById('status').innerHTML = "视频已就绪<br><span style='font-size:12px;color:#666'>点击开始分析</span>";
+        };
+
+        async function beginProcess() {
+            document.getElementById('startBtn').style.display = 'none';
+            document.getElementById('videoWrap').style.display = 'block';
+            progressContainer.style.display = 'block';
+            isAnalyzing = true;
+            
+            // 重置数据
+            frameDataList = [];
+            lastFrameData = null;
+            videoMetrics = null;
+            
+            v.muted = true;
+            v.pause();
+            
+            if (v.readyState < 2) {
+                await new Promise(resolve => {
+                    v.onloadeddata = resolve;
+                    setTimeout(resolve, 1000);
+                });
+            }
+            
+            videoDuration = v.duration;
+            updateTimeDisplay();
+            
+            if (!videoDuration || isNaN(videoDuration)) {
+                alert('无法读取视频时长，请尝试其他视频');
+                return;
+            }
+            
+            const step = isIOS ? 0.3 : 0.2;
+            c.width = v.videoWidth || 640;
+            c.height = v.videoHeight || 480;
+
+            let processedFrames = 0;
+            
+            for (let t = 0; t < videoDuration; t += step) {
+                v.currentTime = t;
+                
+                await new Promise(resolve => {
+                    const checkSeek = () => {
+                        if (Math.abs(v.currentTime - t) < 0.1) {
+                            resolve();
+                        } else {
+                            setTimeout(checkSeek, 50);
+                        }
+                    };
+                    
+                    const timeout = setTimeout(() => {
+                        resolve();
+                    }, 1000);
+                    
+                    v.onseeked = () => {
+                        clearTimeout(timeout);
+                        checkSeek();
+                    };
+                });
+                
+                try {
+                    await pose.send({ image: v });
+                    processedFrames++;
+                } catch(e) {
+                    console.error('处理帧失败:', e);
+                }
+                
+                const prog = Math.min(100, Math.round((t/videoDuration)*100));
+                progressFill.style.width = prog + '%';
+                document.getElementById('status').innerText = `分析中 (${prog}%) - 帧:${processedFrames}`;
+            }
+            
+            isAnalyzing = false;
+            
+            document.getElementById('debugInfo').innerText = 
+                `总帧数: ${frameDataList.length}, 处理帧: ${processedFrames}, 视频时长: ${videoDuration.toFixed(1)}s`;
+            
+            if (frameDataList.length === 0) {
+                alert('未检测到姿态，请确保视频中有人物全身出镜');
+                return;
+            }
+            
+            // 执行时间聚合和评分计算
+            videoMetrics = aggregateTimeMetrics(frameDataList, videoDuration);
+            const results = calculateScores(videoMetrics);
+            finish(results);
+        }
+
+        function handleProgressClick(e) {
+            if (!videoDuration || frameDataList.length === 0) return;
+            
+            const rect = progressContainer.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
+            const percent = x / rect.width;
+            const time = percent * videoDuration;
+            
+            v.currentTime = time;
+            
+            const mins = Math.floor(time / 60);
+            const secs = Math.floor(time % 60);
+            timeTooltip.textContent = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+            timeTooltip.style.left = `${x}px`;
+            
+            const frame = frameDataList.reduce((prev, curr) => 
+                Math.abs(curr.time - time) < Math.abs(prev.time - time) ? curr : prev
+            );
+            
+            if (frame) {
+                draw(frame);
+                updateStatusIndicator(frame);
+            }
+        }
+
+        progressContainer.addEventListener('click', handleProgressClick);
+        progressContainer.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            handleProgressClick(e);
+            progressContainer.addEventListener('touchmove', handleProgressClick);
+        });
+        progressContainer.addEventListener('touchend', () => {
+            progressContainer.removeEventListener('touchmove', handleProgressClick);
+        });
+
+        function updateStatusIndicator(frame) {
+            const isViolation = frame.supportState !== 'stable';
+            const isLocked = frame.lockState.isLocking;
+            const statusDot = document.getElementById('statusDot');
+            const statusText = document.getElementById('statusText');
+            
+            if (isViolation) {
+                statusDot.style.background = 'var(--danger)';
+                statusText.innerText = '非三点不动!';
+            } else if (isLocked) {
+                statusDot.style.background = 'var(--danger)';
+                statusText.innerText = '⚠️ 无效锁臂';
+            } else if (frame.instabilityState) {
+                statusDot.style.background = 'var(--warning)';
+                statusText.innerText = '重心不稳';
+            } else {
+                statusDot.style.background = 'var(--success)';
+                statusText.innerText = '姿态高效';
+            }
+        }
+
+        function draw(frame) {
+            ctx.clearRect(0, 0, c.width, c.height);
+            
+            if (!frame.landmarks) return;
+            
+            const lm = frame.landmarks;
+            
+            // 根据状态设置颜色
+            let strokeColor = '#8b5cf6'; // 默认紫色
+            if (frame.lockState.isLocking) strokeColor = 'var(--danger)';
+            else if (frame.supportState !== 'stable') strokeColor = 'var(--warning)';
+            else if (frame.instabilityState) strokeColor = '#f59e0b';
+            
+            ctx.strokeStyle = strokeColor;
+            ctx.lineWidth = Math.max(3, c.width/120); 
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            
+            const conn = [
+                [11,13],[13,15],[12,14],[14,16],
+                [11,12],[11,23],[12,24],[23,24],
+                [23,25],[24,26],[25,27],[26,28]
+            ];
+            
+            conn.forEach(([s, e]) => {
+                const p1 = lm[s], p2 = lm[e];
+                if (p1 && p2 && p1.visibility > 0.5 && p2.visibility > 0.5) {
+                    ctx.beginPath(); 
+                    ctx.moveTo(p1.x*c.width, p1.y*c.height); 
+                    ctx.lineTo(p2.x*c.width, p2.y*c.height); 
+                    ctx.stroke();
+                }
+            });
+
+            const keyPoints = [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28];
+            keyPoints.forEach(idx => {
+                const p = lm[idx];
+                if (p && p.visibility > 0.5) {
+                    ctx.beginPath();
+                    ctx.arc(p.x*c.width, p.y*c.height, Math.max(4, c.width/80), 0, 2*Math.PI);
+                    ctx.fillStyle = '#fff';
+                    ctx.fill();
+                }
+            });
+
+            // 绘制重心
+            if (frame.center) {
+                const cx = frame.center.x * c.width;
+                const cy = frame.center.y * c.height;
+                
+                ctx.beginPath();
+                ctx.arc(cx, cy, Math.max(10, c.width/40), 0, 2*Math.PI);
+                ctx.fillStyle = 'rgba(6, 182, 212, 0.3)';
+                ctx.fill();
+                ctx.strokeStyle = '#06b6d4';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                
+                ctx.beginPath();
+                ctx.arc(cx, cy, Math.max(5, c.width/80), 0, 2*Math.PI);
+                ctx.fillStyle = '#06b6d4';
+                ctx.fill();
+                
+                const crossSize = Math.max(15, c.width/30);
+                ctx.beginPath();
+                ctx.moveTo(cx - crossSize, cy);
+                ctx.lineTo(cx + crossSize, cy);
+                ctx.moveTo(cx, cy - crossSize);
+                ctx.lineTo(cx, cy + crossSize);
+                ctx.strokeStyle = '#06b6d4';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            }
+
+            // 绘制角度信息
+            if (frame.angles) {
+                ctx.font = `bold ${Math.max(12, c.width/40)}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.shadowColor = 'rgba(0,0,0,0.9)';
+                ctx.shadowBlur = 4;
+                
+                const leftElbow = lm[13];
+                if (leftElbow && leftElbow.visibility > 0.5) {
+                    const isWarning = frame.lockState.left;
+                    ctx.fillStyle = isWarning ? 'var(--danger)' : '#fff';
+                    ctx.fillText(`${Math.round(frame.angles.leftElbow)}°`, leftElbow.x*c.width, leftElbow.y*c.height - 35);
+                }
+                
+                const rightElbow = lm[14];
+                if (rightElbow && rightElbow.visibility > 0.5) {
+                    const isWarning = frame.lockState.right;
+                    ctx.fillStyle = isWarning ? 'var(--danger)' : '#fff';
+                    ctx.fillText(`${Math.round(frame.angles.rightElbow)}°`, rightElbow.x*c.width, rightElbow.y*c.height - 35);
+                }
+                
+                ctx.shadowBlur = 0;
+            }
+
+            // 绘制状态警告
+            if (frame.lockState.isLocking) {
+                ctx.fillStyle = 'var(--danger)';
+                ctx.font = `bold ${Math.max(20, c.width/20)}px Arial`;
+                ctx.textAlign = 'left';
+                ctx.shadowColor = 'rgba(0,0,0,0.9)';
+                ctx.shadowBlur = 6;
+                ctx.fillText("无效锁臂警告!", 20, 60);
+                ctx.shadowBlur = 0;
+            } else if (frame.supportState !== 'stable') {
+                ctx.fillStyle = 'var(--warning)';
+                ctx.font = `bold ${Math.max(16, c.width/25)}px Arial`;
+                ctx.textAlign = 'left';
+                ctx.shadowColor = 'rgba(0,0,0,0.9)';
+                ctx.shadowBlur = 6;
+                ctx.fillText("失去三点支撑!", 20, 60);
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        function finish(results) {
+            document.getElementById('status').innerText = "分析完成";
+            document.getElementById('status').style.color = 'var(--success)';
+            document.getElementById('replayBtn').style.display = 'block';
+            
+            const scoreCircle = document.getElementById('scoreCircle');
+            const totalScoreEl = document.getElementById('totalScore');
+            
+            // 动画显示总分
+            let curr = 0;
+            const interval = setInterval(() => {
+                if (curr >= results.total) {
+                    clearInterval(interval);
+                } else {
+                    curr++;
+                    totalScoreEl.textContent = curr;
+                    scoreCircle.style.setProperty('--score', curr);
+                }
+            }, 15);
+
+            // 生成建议
+            const advice = generateAdvice(results);
+            document.getElementById('aiAdvice').innerHTML = `<b>AI 训练建议：</b><br>${advice.text}`;
+            
+            const badge = document.getElementById('gradeBadge');
+            badge.innerText = `${advice.grade}级 - ${advice.grade === 'S' ? '顶尖高手' : advice.grade === 'A' ? '进阶选手' : advice.grade === 'B' ? '潜力新人' : '需要练习'}`;
+            badge.style.borderColor = advice.gradeColor;
+            badge.style.color = advice.gradeColor;
+            badge.style.background = advice.gradeColor.replace(')', ', 0.2)').replace('rgb', 'rgba').replace('#', '');
+
+            // 渲染详细指标
+            const m = results.metrics;
+            document.getElementById('metrics').innerHTML = `
+                <div class="metric">
+                    <div class="metric-header">
+                        <div class="metric-name"><div style="background:rgba(139,92,246,0.2);padding:4px;border-radius:6px;">🧗</div>动作结构质量 (30%)</div>
+                        <div class="metric-score">${Math.round(results.structure.total)}分</div>
+                    </div>
+                    <div class="metric-bar-bg"><div class="metric-bar-fill" style="width:0%; background:var(--accent);" data-w="${results.structure.total}%"></div></div>
+                    <div class="sub-metric">三点支撑: ${results.structure.threePoint}分 (稳定${m.stableFrames}帧/短暂失衡${m.briefUnstableFrames}帧/持续失衡${m.unstableFrames}帧)</div>
+                    <div class="sub-metric">转换合理: ${results.structure.conversion}分 (违规${m.conversionViolations}次)</div>
+                </div>
+                
+                <div class="metric">
+                    <div class="metric-header">
+                        <div class="metric-name"><div style="background:rgba(139,92,246,0.2);padding:4px;border-radius:6px;">⚖️</div>身体控制能力 (30%)</div>
+                        <div class="metric-score">${Math.round(results.control.total)}分</div>
+                    </div>
+                    <div class="metric-bar-bg"><div class="metric-bar-fill" style="width:0%; background:var(--accent);" data-w="${results.control.total}%"></div></div>
+                    <div class="sub-metric">重心稳定: ${results.control.stability}分 (抖动${m.instabilityFrames}帧)</div>
+                    <div class="sub-metric">失衡恢复: ${results.control.recovery}分 (平均恢复${m.recoveryTimes.length > 0 ? (m.recoveryTimes.reduce((a,b)=>a+b,0)/m.recoveryTimes.length).toFixed(2) : 0}s)</div>
+                </div>
+                
+                <div class="metric">
+                    <div class="metric-header">
+                        <div class="metric-name"><div style="background:rgba(139,92,246,0.2);padding:4px;border-radius:6px;">〰️</div>动作效率 (25%)</div>
+                        <div class="metric-score">${Math.round(results.efficiency.total)}分</div>
+                    </div>
+                    <div class="metric-bar-bg"><div class="metric-bar-fill" style="width:0%; background:var(--accent);" data-w="${results.efficiency.total}%"></div></div>
+                    <div class="sub-metric">动作流畅: ${results.efficiency.flow}分 (停顿${m.pauseCount}次/共${m.totalPauseDuration.toFixed(1)}s)</div>
+                    <div class="sub-metric">预摆能力: ${results.efficiency.prep}分 (${m.movementCount > 0 ? Math.round((1-m.noPrepCount/m.movementCount)*100) : 0}%的换点有预摆)</div>
+                </div>
+                
+                <div class="metric">
+                    <div class="metric-header">
+                        <div class="metric-name"><div style="background:rgba(139,92,246,0.2);padding:4px;border-radius:6px;">🔒</div>技术风险 (15%)</div>
+                        <div class="metric-score">${Math.round(results.techniqueRisk.total)}分</div>
+                    </div>
+                    <div class="metric-bar-bg"><div class="metric-bar-fill" style="width:0%; background:var(--accent);" data-w="${results.techniqueRisk.total}%"></div></div>
+                    <div class="sub-metric">锁臂检测: ${results.techniqueRisk.lockArm}分 (累计${m.lockDuration.total.toFixed(1)}s/${m.lockEvents.length}次事件)</div>
+                </div>
+            `;
+
+            setTimeout(() => {
+                document.querySelectorAll('.metric-bar-fill').forEach(b => b.style.width = b.dataset.w);
+            }, 300);
+
+            document.getElementById('scoreCard').style.display = 'block';
+            window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+        }
+    </script>
+</body>
+</html>
